@@ -34,9 +34,9 @@
 
             # Tauri desktop dependencies
             openssl
-            webkitgtk
+            webkitgtk_4_1
             gtk3
-            libsoup
+            libsoup_3
 
             # CLAP plugin audio dependencies
             alsa-lib

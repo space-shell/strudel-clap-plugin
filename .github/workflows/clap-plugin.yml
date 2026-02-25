@@ -61,7 +61,14 @@ jobs:
             pkg-config \
             libasound2-dev \
             libjack-jackd2-dev \
-            mingw-w64
+            mingw-w64 \
+            libx11-dev \
+            libxext-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxinerama-dev \
+            libxi-dev \
+            libgl1-mesa-dev
 
       - name: Configure cross-compilation (Windows)
         if: matrix.platform.target == 'x86_64-pc-windows-gnu'

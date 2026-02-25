@@ -63,6 +63,8 @@ jobs:
             libjack-jackd2-dev \
             mingw-w64 \
             libx11-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
             libxext-dev \
             libxrandr-dev \
             libxcursor-dev \

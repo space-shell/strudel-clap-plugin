@@ -1,4 +1,4 @@
-# Strudel CLAP Plugin - Implementation Plan
+# Strudel CLAP/VST3 Plugin - Implementation Plan
 
 **Status:** 🚧 In Development
 **Started:** 2026-02-25
@@ -9,7 +9,7 @@
 
 ## Overview
 
-This document tracks the development of a CLAP audio plugin that integrates Strudel's pattern engine into DAWs. The plugin will support both audio synthesis and MIDI output, with DAW transport synchronization.
+This document tracks the development of a CLAP/VST3 audio plugin that integrates Strudel's pattern engine into DAWs. The plugin supports both CLAP and VST3 formats, with audio synthesis and MIDI output, and DAW transport synchronization.
 
 ### Design Goals
 
@@ -447,3 +447,17 @@ reaper
 - Multi-platform build system (Linux native, Windows cross-compile) ✅
 - CI/CD pipeline for automated builds ✅
 - All foundation code committed to git ✅
+
+**Evening:**
+- ✅ VST3 support added (Phase 1.5)
+- Created xtask bundler infrastructure for automatic plugin bundling
+- Both CLAP and VST3 formats now build from same codebase
+- Updated CI/CD to bundle both formats automatically
+- Updated documentation to reflect dual-format support
+- Created BUNDLE.sh helper script for easy local bundling
+
+**Key Achievements:**
+- VST3 bundling working alongside CLAP ✅
+- Single codebase outputs both plugin formats ✅
+- CI builds and distributes both CLAP and VST3 ✅
+- Broader DAW compatibility (VST3 works in Ableton, FL Studio, Logic, etc.) ✅

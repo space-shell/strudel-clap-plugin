@@ -1,6 +1,6 @@
 # @strudel/clap-plugin
 
-Strudel live coding pattern language as a CLAP audio plugin for DAWs.
+Strudel live coding pattern language as a CLAP/VST3 audio plugin for DAWs.
 
 ## Status
 
@@ -38,26 +38,41 @@ cargo build --release
 ### Bundle for Installation
 
 ```bash
-# Install cargo-xtask if not already installed
-cargo install cargo-xtask
-
-# Bundle the plugin
+# Bundle the plugin (creates both CLAP and VST3)
 cargo xtask bundle strudel-clap-plugin --release
 
-# Plugin installed to:
-# Linux: ~/.clap/Strudel.clap
-# macOS: ~/Library/Audio/Plug-Ins/CLAP/Strudel.clap
-# Windows: %COMMONPROGRAMFILES%\CLAP\Strudel.clap
+# Outputs:
+# - target/bundled/strudel-clap-plugin.clap (CLAP format)
+# - target/bundled/strudel-clap-plugin.vst3/ (VST3 bundle)
+
+# Install CLAP:
+# Linux: cp target/bundled/strudel-clap-plugin.clap ~/.clap/
+# macOS: cp target/bundled/strudel-clap-plugin.clap ~/Library/Audio/Plug-Ins/CLAP/
+# Windows: copy target\bundled\strudel-clap-plugin.clap "%COMMONPROGRAMFILES%\CLAP\"
+
+# Install VST3:
+# Linux: cp -r target/bundled/strudel-clap-plugin.vst3 ~/.vst3/
+# macOS: cp -r target/bundled/strudel-clap-plugin.vst3 ~/Library/Audio/Plug-Ins/VST3/
+# Windows: xcopy target\bundled\strudel-clap-plugin.vst3 "%COMMONPROGRAMFILES%\VST3\" /E /I
 ```
 
 ## Testing in a DAW
 
-The plugin can be tested in any CLAP-compatible DAW:
+The plugin can be tested in any CLAP or VST3-compatible DAW:
 
+**CLAP Support:**
 - **REAPER** - Excellent CLAP support
 - **Bitwig Studio** - Native CLAP support
 - **Ardour** - CLAP support in recent versions
 - **Carla** - Lightweight host, great for testing
+
+**VST3 Support:**
+- **Ableton Live** - VST3 support
+- **FL Studio** - VST3 support
+- **Logic Pro** - VST3 support (macOS)
+- **Cubase/Nuendo** - VST3 native format
+- **Studio One** - VST3 support
+- Most other modern DAWs
 
 ## Architecture
 

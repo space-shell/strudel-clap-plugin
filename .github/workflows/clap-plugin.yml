@@ -1,4 +1,4 @@
-name: Build CLAP Plugin
+name: Build CLAP/VST3 Plugin
 
 on:
   push:
@@ -96,47 +96,57 @@ jobs:
             ${{ runner.os }}-cargo-${{ matrix.platform.target }}-
             ${{ runner.os }}-cargo-
 
-      - name: Build plugin (debug)
-        working-directory: packages/clap-plugin
-        run: cargo build --target ${{ matrix.platform.target }}
-
-      - name: Build plugin (release)
-        working-directory: packages/clap-plugin
-        run: cargo build --release --target ${{ matrix.platform.target }}
-
       - name: Run tests
         if: matrix.platform.target == 'x86_64-unknown-linux-gnu'
         working-directory: packages/clap-plugin
         run: cargo test --target ${{ matrix.platform.target }}
 
+      - name: Bundle plugin (CLAP + VST3)
+        working-directory: packages/clap-plugin
+        run: cargo xtask bundle strudel-clap-plugin --release --target ${{ matrix.platform.target }}
+
       - name: Prepare artifact
         run: |
           mkdir -p artifacts
-          cp packages/clap-plugin/target/${{ matrix.platform.target }}/release/${{ matrix.platform.artifact }} artifacts/
+
+          # Copy bundled plugins
+          cp -r packages/clap-plugin/target/bundled/* artifacts/
 
           # Create a README for the artifact
           cat > artifacts/README.txt << EOF
-          Strudel CLAP Plugin - ${{ matrix.platform.name }}
+          Strudel CLAP/VST3 Plugin - ${{ matrix.platform.name }}
           Built: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
           Commit: ${{ github.sha }}
           Target: ${{ matrix.platform.target }}
 
+          This package contains both CLAP and VST3 versions of the Strudel plugin.
+
           Installation:
+
+          CLAP Plugin:
           EOF
 
           if [[ "${{ matrix.platform.target }}" == *"linux"* ]]; then
-            echo "  Copy to: ~/.clap/Strudel.clap" >> artifacts/README.txt
+            echo "  Copy strudel-clap-plugin.clap to: ~/.clap/" >> artifacts/README.txt
+            echo "" >> artifacts/README.txt
+            echo "VST3 Plugin:" >> artifacts/README.txt
+            echo "  Copy strudel-clap-plugin.vst3/ to: ~/.vst3/" >> artifacts/README.txt
           elif [[ "${{ matrix.platform.target }}" == *"windows"* ]]; then
-            echo "  Rename to: Strudel.clap" >> artifacts/README.txt
-            echo "  Copy to: C:\\Program Files\\Common Files\\CLAP\\" >> artifacts/README.txt
+            echo "  Copy strudel-clap-plugin.clap to: C:\\Program Files\\Common Files\\CLAP\\" >> artifacts/README.txt
+            echo "" >> artifacts/README.txt
+            echo "VST3 Plugin:" >> artifacts/README.txt
+            echo "  Copy strudel-clap-plugin.vst3/ to: C:\\Program Files\\Common Files\\VST3\\" >> artifacts/README.txt
           elif [[ "${{ matrix.platform.target }}" == *"darwin"* ]]; then
-            echo "  Copy to: ~/Library/Audio/Plug-Ins/CLAP/Strudel.clap" >> artifacts/README.txt
+            echo "  Copy strudel-clap-plugin.clap to: ~/Library/Audio/Plug-Ins/CLAP/" >> artifacts/README.txt
+            echo "" >> artifacts/README.txt
+            echo "VST3 Plugin:" >> artifacts/README.txt
+            echo "  Copy strudel-clap-plugin.vst3/ to: ~/Library/Audio/Plug-Ins/VST3/" >> artifacts/README.txt
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: strudel-clap-${{ matrix.platform.target }}
+          name: strudel-plugin-${{ matrix.platform.target }}
           path: artifacts/
           retention-days: 30
 
@@ -168,14 +178,20 @@ jobs:
         with:
           files: artifacts/*.zip
           body: |
-            ## Strudel CLAP Plugin Release
+            ## Strudel CLAP/VST3 Plugin Release
+
+            Each download contains both CLAP and VST3 versions of the plugin.
 
             ### Downloads
-            - **Linux**: `strudel-clap-x86_64-unknown-linux-gnu.zip`
-            - **Windows**: `strudel-clap-x86_64-pc-windows-gnu.zip`
+            - **Linux x86_64**: `strudel-plugin-x86_64-unknown-linux-gnu.zip`
+            - **Windows x86_64**: `strudel-plugin-x86_64-pc-windows-gnu.zip`
 
             ### Installation
             See README.txt in each archive for installation instructions.
+
+            ### Plugin Formats
+            - **CLAP** - Cross-platform, modern plugin format
+            - **VST3** - Industry standard, wider DAW compatibility
 
             ### Changelog
             - See commit history for changes

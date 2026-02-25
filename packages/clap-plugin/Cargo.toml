@@ -1,3 +1,6 @@
+[workspace]
+members = ["xtask"]
+
 [package]
 name = "strudel-clap-plugin"
 version = "0.1.0"

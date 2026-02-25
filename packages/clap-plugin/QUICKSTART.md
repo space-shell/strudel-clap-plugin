@@ -1,15 +1,16 @@
-# Strudel CLAP Plugin - Quick Start Guide
+# Strudel CLAP/VST3 Plugin - Quick Start Guide
 
 ## 🎉 What's Been Built
 
-You now have a complete foundation for the Strudel CLAP plugin:
+You now have a complete foundation for the Strudel CLAP/VST3 plugin:
 
 ### ✅ Phase 1 Complete - Project Setup
 
 1. **Working Plugin** 🎵
    - Compiles successfully on Linux
-   - Loads in CLAP-compatible DAWs
-   - Exports both CLAP and VST3 interfaces
+   - Loads in CLAP and VST3-compatible DAWs
+   - Exports both CLAP and VST3 formats
+   - Automatic bundling with xtask
    - Stereo audio output + MIDI output configured
    - Test gain parameter working
 
@@ -66,18 +67,36 @@ git push origin feat/clap-daw-plugin
 
 ### Install in DAW
 
+**Bundle the plugin first:**
+```bash
+cargo xtask bundle strudel-clap-plugin --release
+```
+
 **Linux:**
 ```bash
-cp target/release/libstrudel_clap_plugin.so ~/.clap/Strudel.clap
+# CLAP
+cp target/bundled/strudel-clap-plugin.clap ~/.clap/
+
+# VST3
+cp -r target/bundled/strudel-clap-plugin.vst3 ~/.vst3/
 ```
 
 **Windows:**
-1. Rename `strudel_clap_plugin.dll` → `Strudel.clap`
-2. Copy to `C:\Program Files\Common Files\CLAP\`
+```cmd
+REM CLAP
+copy target\bundled\strudel-clap-plugin.clap "%COMMONPROGRAMFILES%\CLAP\"
+
+REM VST3
+xcopy target\bundled\strudel-clap-plugin.vst3 "%COMMONPROGRAMFILES%\VST3\" /E /I
+```
 
 **macOS:** (when available)
 ```bash
-cp target/release/libstrudel_clap_plugin.dylib ~/Library/Audio/Plug-Ins/CLAP/Strudel.clap
+# CLAP
+cp target/bundled/strudel-clap-plugin.clap ~/Library/Audio/Plug-Ins/CLAP/
+
+# VST3
+cp -r target/bundled/strudel-clap-plugin.vst3 ~/Library/Audio/Plug-Ins/VST3/
 ```
 
 ## 🧪 Testing the Plugin
@@ -85,15 +104,22 @@ cp target/release/libstrudel_clap_plugin.dylib ~/Library/Audio/Plug-Ins/CLAP/Str
 ### Recommended DAWs for Testing
 
 **Linux:**
-- **Carla** (easiest): `carla` → Add Plugin → Search "Strudel"
-- **REAPER**: Preferences → Plug-ins → CLAP → Add `~/.clap`
-- **Bitwig Studio**: Should auto-detect
-- **Ardour**: Settings → Plugins → Rescan
+- **Carla** (easiest): Supports both CLAP and VST3
+- **REAPER**: Excellent CLAP and VST3 support
+- **Bitwig Studio**: Native CLAP and VST3 support
+- **Ardour**: Supports both formats
 
 **Windows:**
 - **REAPER** (best CLAP support)
-- **Bitwig Studio**
-- **FL Studio** (recent versions)
+- **Bitwig Studio** (CLAP + VST3)
+- **FL Studio** (VST3)
+- **Ableton Live** (VST3)
+- **Cubase/Nuendo** (VST3 native)
+
+**macOS:**
+- **Logic Pro** (VST3)
+- **Ableton Live** (VST3)
+- **REAPER** (CLAP + VST3)
 
 ### What Works Now
 

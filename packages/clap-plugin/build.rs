@@ -1,4 +1,5 @@
 fn main() {
-    // This is required for nih-plug to generate the plugin metadata
-    nih_plug_build_utils::export_symbols();
+    // Build script placeholder
+    // nih-plug handles symbol exports automatically for basic plugins
+    println!("cargo:rerun-if-changed=build.rs");
 }

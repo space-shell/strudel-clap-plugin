@@ -102,11 +102,10 @@ impl Plugin for StrudelPlugin {
         }
 
         // Log transport state (will be used for sync)
-        if let Some(transport) = context.transport() {
-            if transport.playing {
-                // TODO: Generate events based on transport position
-                // TODO: Synthesize audio or send MIDI
-            }
+        let transport = context.transport();
+        if transport.playing {
+            // TODO: Generate events based on transport position
+            // TODO: Synthesize audio or send MIDI
         }
 
         ProcessStatus::Normal

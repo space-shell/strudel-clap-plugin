@@ -145,3 +145,14 @@ fabric.properties
 samples/*
 !samples/README.md
 .idea/
+
+# Nix direnv
+.direnv/
+.envrc
+
+# pnpm store
+.pnpm-store/
+
+# Rust build artifacts
+target/
+Cargo.lock

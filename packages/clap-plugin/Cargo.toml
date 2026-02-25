@@ -22,9 +22,6 @@ ringbuf = "0.4"
 # JavaScript runtime (will add after testing basic plugin)
 # deno_core = "0.278"
 
-[build-dependencies]
-nih_plug_build_utils = { git = "https://github.com/robbert-vdh/nih-plug.git" }
-
 [profile.release]
 lto = true
 strip = true

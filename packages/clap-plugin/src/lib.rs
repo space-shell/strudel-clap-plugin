@@ -3,7 +3,6 @@
 // Licensed under AGPL-3.0-or-later
 
 use nih_plug::prelude::*;
-use std::sync::Arc;
 
 mod plugin;
 

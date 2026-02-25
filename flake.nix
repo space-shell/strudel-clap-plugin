@@ -44,7 +44,7 @@
 
             # Windows cross-compilation (for CLAP plugin)
             pkgsCross.mingwW64.stdenv.cc
-            wineWowPackages.stable  # Optional: for testing Windows builds
+            # wine64Packages.stable  # Optional: for testing Windows builds (uncomment if needed)
           ];
 
           shellHook = ''

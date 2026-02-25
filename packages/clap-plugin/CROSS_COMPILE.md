@@ -178,7 +178,29 @@ ls -lh target/x86_64-pc-windows-gnu/release/
 
 ## CI/CD Integration
 
-Example GitHub Actions workflow:
+**✅ GitHub Actions is already set up!**
+
+See `/.github/workflows/clap-plugin.yml` for the complete workflow.
+
+The workflow automatically builds for:
+- Linux x86_64
+- Windows x86_64 (cross-compiled from Linux)
+- macOS (optional, commented out)
+
+**To trigger a build:**
+```bash
+# Push to main or feat/clap-daw-plugin branch
+git push origin feat/clap-daw-plugin
+
+# Or manually trigger from GitHub Actions tab
+```
+
+**To download artifacts:**
+1. Go to GitHub Actions tab
+2. Click on latest workflow run
+3. Download platform-specific artifacts
+
+**Example manual workflow:
 
 ```yaml
 name: Build Multi-Platform

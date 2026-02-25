@@ -30,6 +30,7 @@
             rustc
             rustfmt
             clippy
+            rustup  # For managing cross-compilation targets
             pkg-config
 
             # Tauri desktop dependencies

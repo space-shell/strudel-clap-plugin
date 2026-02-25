@@ -24,6 +24,7 @@
 
             # Build and development tools
             git
+            github-cli
 
             # Rust toolchain for Tauri desktop and CLAP plugin
             cargo

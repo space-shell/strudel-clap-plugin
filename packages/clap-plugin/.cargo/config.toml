@@ -1,0 +1,11 @@
+# Cargo configuration for Strudel CLAP Plugin
+
+# Windows cross-compilation using MinGW
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"
+
+# Windows MSVC target - use with cargo-xwin
+[target.x86_64-pc-windows-msvc]
+# Enable static CRT linking (no runtime dependencies)
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -41,6 +41,10 @@
             # CLAP plugin audio dependencies
             alsa-lib
             libjack2
+
+            # Windows cross-compilation (for CLAP plugin)
+            pkgsCross.mingwW64.stdenv.cc
+            wineWowPackages.stable  # Optional: for testing Windows builds
           ];
 
           shellHook = ''
@@ -60,9 +64,14 @@
             echo ""
             echo "CLAP Plugin Development:"
             echo "  cd packages/clap-plugin"
-            echo "  cargo build              - Build debug plugin"
-            echo "  cargo build --release    - Build release plugin"
+            echo "  cargo build              - Build debug plugin (Linux)"
+            echo "  cargo build --release    - Build release plugin (Linux)"
             echo "  cargo clippy             - Lint Rust code"
+            echo ""
+            echo "Cross-Compilation:"
+            echo "  See packages/clap-plugin/CROSS_COMPILE.md for details"
+            echo "  rustup target add x86_64-pc-windows-gnu   - Add Windows target"
+            echo "  cargo build --target x86_64-pc-windows-gnu --release"
             echo ""
 
             # Set up pnpm store directory in the project to avoid global pollution

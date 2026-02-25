@@ -194,3 +194,4 @@ See the full plan in `docs/clap-plugin-plan.md` or check:
 **Built with:** Rust 🦀 + nih-plug 🎵 + Nix ❄️ + GitHub Actions 🤖
 
 **Ready for Phase 2!** 🚀
+test push to trigger workflow

@@ -1,0 +1,29 @@
+{
+  "name": "@strudel/clap-plugin",
+  "version": "0.1.0",
+  "description": "Strudel CLAP audio plugin for DAWs",
+  "private": true,
+  "scripts": {
+    "build": "cargo build --release",
+    "build:dev": "cargo build",
+    "bundle": "cargo xtask bundle strudel-clap-plugin --release",
+    "bundle:dev": "cargo xtask bundle strudel-clap-plugin",
+    "test": "cargo test",
+    "clean": "cargo clean"
+  },
+  "keywords": [
+    "clap",
+    "vst3",
+    "plugin",
+    "audio",
+    "music",
+    "live-coding",
+    "strudel"
+  ],
+  "author": "Strudel Contributors",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tidalcycles/strudel"
+  }
+}

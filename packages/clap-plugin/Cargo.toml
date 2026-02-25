@@ -1,0 +1,36 @@
+[package]
+name = "strudel-clap-plugin"
+version = "0.1.0"
+edition = "2021"
+authors = ["Strudel Contributors"]
+license = "AGPL-3.0-or-later"
+description = "Strudel live coding pattern language as a CLAP audio plugin"
+homepage = "https://strudel.cc"
+repository = "https://github.com/tidalcycles/strudel"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+crossbeam-channel = "0.5"
+ringbuf = "0.4"
+
+# JavaScript runtime (will add after testing basic plugin)
+# deno_core = "0.278"
+
+[build-dependencies]
+nih_plug_build_utils = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+
+[profile.release]
+lto = true
+strip = true
+opt-level = 3
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false

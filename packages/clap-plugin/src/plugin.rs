@@ -143,7 +143,7 @@ impl Plugin for StrudelPlugin {
                 let egui_state = &state.egui_state;
 
                 // ── Keyboard shortcuts (single ctx.input call per frame) ────────
-                let (ctrl_enter, zoom_in, zoom_out, toggle_mute) = ctx.input(|i| {
+                let (ctrl_enter, zoom_in, zoom_out, zoom_reset, toggle_mute) = ctx.input(|i| {
                     let ctrl_enter =
                         i.key_pressed(egui::Key::Enter) && i.modifiers.command_only();
                     // Ctrl+= (no shift) or Ctrl+Plus (numpad / shifted = on some layouts)
@@ -152,9 +152,11 @@ impl Plugin for StrudelPlugin {
                         || (i.key_pressed(egui::Key::Plus) && i.modifiers.ctrl);
                     let zoom_out =
                         i.key_pressed(egui::Key::Minus) && i.modifiers.command_only();
+                    let zoom_reset =
+                        i.key_pressed(egui::Key::Num0) && i.modifiers.command_only();
                     let toggle_mute =
                         i.key_pressed(egui::Key::Period) && i.modifiers.command_only();
-                    (ctrl_enter, zoom_in, zoom_out, toggle_mute)
+                    (ctrl_enter, zoom_in, zoom_out, zoom_reset, toggle_mute)
                 });
 
                 {
@@ -170,6 +172,9 @@ impl Plugin for StrudelPlugin {
                     }
                     if zoom_out {
                         gs.font_size = (gs.font_size - 1.0).max(8.0);
+                    }
+                    if zoom_reset {
+                        gs.font_size = GuiState::default().font_size;
                     }
                 }
 

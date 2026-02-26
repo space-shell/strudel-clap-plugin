@@ -30,8 +30,8 @@ jobs:
             artifact: libstrudel_clap_plugin.so
 
           - name: Windows x86_64
-            os: ubuntu-latest  # Cross-compile from Linux
-            target: x86_64-pc-windows-gnu
+            os: windows-latest  # Native Windows build (MSVC has V8 prebuilts)
+            target: x86_64-pc-windows-msvc
             artifact: strudel_clap_plugin.dll
 
           # - name: macOS x86_64
@@ -61,7 +61,6 @@ jobs:
             pkg-config \
             libasound2-dev \
             libjack-jackd2-dev \
-            mingw-w64 \
             libx11-dev \
             libx11-xcb-dev \
             libxcb1-dev \
@@ -109,6 +108,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install Node dependencies and bundle JS runtime
+        shell: bash
         run: |
           pnpm install --frozen-lockfile
           ./packages/clap-plugin/scripts/bundle-runtime.sh
@@ -123,6 +123,7 @@ jobs:
         run: cargo xtask bundle strudel-clap-plugin --release --target ${{ matrix.platform.target }}
 
       - name: Prepare artifact
+        shell: bash
         run: |
           mkdir -p artifacts
 

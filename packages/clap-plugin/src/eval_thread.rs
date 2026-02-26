@@ -21,10 +21,19 @@ pub enum EvalMessage {
     Shutdown,
 }
 
+/// Result of evaluating pattern code — sent back to the plugin via a separate channel.
+#[derive(Debug, Clone)]
+pub struct EvalResult {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
 /// The evaluation thread handle
 pub struct EvalThread {
     /// Sender for messages to the eval thread
     sender: Sender<EvalMessage>,
+    /// Receiver for evaluation results coming back from the eval thread
+    result_rx: Receiver<EvalResult>,
     /// Join handle for the eval thread
     handle: Option<JoinHandle<()>>,
 }
@@ -37,16 +46,18 @@ impl EvalThread {
     /// * `cycles_ahead` - How many cycles to pre-render ahead
     pub fn spawn(event_buffer: Arc<DoubleEventBuffer>, cycles_ahead: i64) -> Self {
         let (sender, receiver) = crossbeam_channel::unbounded();
+        let (result_tx, result_rx) = crossbeam_channel::unbounded::<EvalResult>();
 
         let handle = thread::Builder::new()
             .name("strudel-eval".to_string())
             .spawn(move || {
-                eval_thread_loop(receiver, event_buffer, cycles_ahead);
+                eval_thread_loop(receiver, event_buffer, cycles_ahead, result_tx);
             })
             .expect("Failed to spawn evaluation thread");
 
         Self {
             sender,
+            result_rx,
             handle: Some(handle),
         }
     }
@@ -76,6 +87,12 @@ impl EvalThread {
     /// Shutdown the evaluation thread
     pub fn shutdown(&self) -> Result<(), String> {
         self.send(EvalMessage::Shutdown)
+    }
+
+    /// Try to receive an evaluation result without blocking.
+    /// Returns `Some(EvalResult)` if a result is available, `None` otherwise.
+    pub fn try_recv_result(&self) -> Option<EvalResult> {
+        self.result_rx.try_recv().ok()
     }
 }
 
@@ -124,6 +141,7 @@ fn eval_thread_loop(
     receiver: Receiver<EvalMessage>,
     event_buffer: Arc<DoubleEventBuffer>,
     cycles_ahead: i64,
+    result_tx: Sender<EvalResult>,
 ) {
     let mut state = EvalThreadState::new();
 
@@ -133,7 +151,13 @@ fn eval_thread_loop(
             Ok(message) => {
                 match message {
                     EvalMessage::SetCode(code) => {
-                        handle_set_code(&mut state, &code, &event_buffer, cycles_ahead);
+                        handle_set_code(
+                            &mut state,
+                            &code,
+                            &event_buffer,
+                            cycles_ahead,
+                            &result_tx,
+                        );
                     }
                     EvalMessage::SetTempo(bpm) => {
                         handle_set_tempo(&mut state, bpm);
@@ -160,30 +184,40 @@ fn eval_thread_loop(
     }
 }
 
-/// Handle SetCode message
+/// Handle SetCode message — evaluates the code and sends an EvalResult back.
 fn handle_set_code(
     state: &mut EvalThreadState,
     code: &str,
     event_buffer: &Arc<DoubleEventBuffer>,
     cycles_ahead: i64,
+    result_tx: &Sender<EvalResult>,
 ) {
     let result = state.runtime.set_code(code);
 
-    if result.success {
+    let eval_result = if result.success {
         state.has_pattern = true;
 
         // Pre-render events from current position
         if state.playing {
             render_events(state, event_buffer, cycles_ahead);
         }
+
+        EvalResult { success: true, error: None }
     } else {
         state.has_pattern = false;
         event_buffer.clear();
 
-        if let Some(error) = result.error {
-            eprintln!("Pattern evaluation error: {}", error);
-        }
-    }
+        let error_msg = result
+            .error
+            .clone()
+            .unwrap_or_else(|| "Unknown evaluation error".to_string());
+        eprintln!("Pattern evaluation error: {}", error_msg);
+
+        EvalResult { success: false, error: Some(error_msg) }
+    };
+
+    // Send result back to plugin (best-effort; ignore if receiver dropped)
+    let _ = result_tx.send(eval_result);
 }
 
 /// Handle SetTempo message
@@ -274,6 +308,42 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         // Shutdown
+        thread.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_eval_thread_set_code_result() {
+        let buffer = Arc::new(DoubleEventBuffer::new(4));
+        let thread = EvalThread::spawn(buffer.clone(), 4);
+
+        // Set a valid pattern and check we get a success result
+        thread.set_code("s('bd sd')".to_string()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let result = thread.try_recv_result();
+        assert!(result.is_some(), "Should have received an EvalResult");
+        let result = result.unwrap();
+        assert!(result.success, "Valid pattern should succeed");
+        assert!(result.error.is_none());
+
+        thread.shutdown().unwrap();
+    }
+
+    #[test]
+    fn test_eval_thread_set_code_error() {
+        let buffer = Arc::new(DoubleEventBuffer::new(4));
+        let thread = EvalThread::spawn(buffer.clone(), 4);
+
+        // Set invalid code and check we get an error result
+        thread.set_code("this is not valid strudel code !!!".to_string()).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let result = thread.try_recv_result();
+        assert!(result.is_some(), "Should have received an EvalResult");
+        let result = result.unwrap();
+        assert!(!result.success, "Invalid code should fail");
+        assert!(result.error.is_some(), "Should have an error message");
+
         thread.shutdown().unwrap();
     }
 

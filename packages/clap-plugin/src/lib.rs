@@ -8,6 +8,7 @@ mod plugin;
 mod js_runtime;
 mod event_buffer;
 mod eval_thread;
+mod gui_state;
 mod voice;
 
 pub use plugin::StrudelPlugin;

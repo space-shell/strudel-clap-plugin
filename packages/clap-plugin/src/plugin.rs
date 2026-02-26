@@ -1,13 +1,16 @@
-// Main plugin implementation — Phase 3: MIDI output + built-in synthesizer
+// Main plugin implementation — Phase 4: egui code editor GUI
 // Copyright (C) 2026 Strudel Contributors
 // Licensed under AGPL-3.0-or-later
 
 use nih_plug::prelude::*;
+use nih_plug_egui::{create_egui_editor, egui, EguiState};
+use parking_lot::Mutex;
 use std::sync::Arc;
 
 use crate::event_buffer::DoubleEventBuffer;
 use crate::eval_thread::EvalThread;
-use crate::voice::{VoiceManager, event_params_to_note, midi_to_freq};
+use crate::gui_state::GuiState;
+use crate::voice::{VoiceManager, event_params_to_note};
 
 // ─── Active MIDI note (tracks pending NoteOff) ────────────────────────────────
 
@@ -30,6 +33,10 @@ pub struct StrudelPlugin {
     voice_manager: VoiceManager,
     /// MIDI notes waiting for their NoteOff event.
     active_midi_notes: Vec<ActiveMidiNote>,
+    /// State shared with the GUI thread (code, error, bpm, play status).
+    gui_state: Arc<Mutex<GuiState>>,
+    /// egui window size and open/closed state — required by nih_plug_egui.
+    egui_state: Arc<EguiState>,
 }
 
 // ─── Parameters ───────────────────────────────────────────────────────────────
@@ -50,6 +57,8 @@ impl Default for StrudelPlugin {
             sample_rate: 44100.0,
             voice_manager: VoiceManager::new(),
             active_midi_notes: Vec::new(),
+            gui_state: Arc::new(Mutex::new(GuiState::default())),
+            egui_state: EguiState::from_size(640, 440),
         }
     }
 }
@@ -100,6 +109,73 @@ impl Plugin for StrudelPlugin {
         self.params.clone()
     }
 
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        create_egui_editor(
+            self.egui_state.clone(),
+            // user_state: cloned Arc so the editor holds a reference to the shared state
+            self.gui_state.clone(),
+            // init: nothing to set up per-window
+            |_ctx, _gui_state| {},
+            // update: called every frame; gui_state is &mut Arc<Mutex<GuiState>>
+            |ctx, _setter, gui_state| {
+                // ── Header: title + transport info ─────────────────────────────
+                egui::TopBottomPanel::top("strudel_header").show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Strudel");
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                let gs = gui_state.lock();
+                                let play_icon = if gs.is_playing { "▶" } else { "⏹" };
+                                ui.label(format!("{} {:.1} BPM", play_icon, gs.bpm));
+                            },
+                        );
+                    });
+                });
+
+                // ── Footer: Evaluate button + status / error ────────────────────
+                egui::TopBottomPanel::bottom("strudel_footer").show(ctx, |ui| {
+                    // Read last_error once to avoid multiple lock acquisitions
+                    let last_error = gui_state.lock().last_error.clone();
+
+                    // Check keyboard shortcut before the button so both can set
+                    // eval_requested in one place.
+                    let ctrl_enter = ctx.input(|i| {
+                        i.key_pressed(egui::Key::Enter) && i.modifiers.command_only()
+                    });
+
+                    ui.horizontal(|ui| {
+                        let btn_clicked = ui.button("Evaluate  Ctrl+Enter").clicked();
+                        if btn_clicked || ctrl_enter {
+                            gui_state.lock().eval_requested = true;
+                        }
+
+                        if last_error.is_empty() {
+                            ui.colored_label(egui::Color32::GREEN, "● Ready");
+                        }
+                    });
+
+                    if !last_error.is_empty() {
+                        ui.colored_label(egui::Color32::RED, &last_error);
+                    }
+                });
+
+                // ── Central panel: monospace code editor ────────────────────────
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let mut gs = gui_state.lock();
+                        ui.add(
+                            egui::TextEdit::multiline(&mut gs.code)
+                                .font(egui::TextStyle::Monospace)
+                                .desired_rows(15)
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
+                });
+            },
+        )
+    }
+
     fn initialize(
         &mut self,
         _audio_io_layout: &AudioIOLayout,
@@ -108,9 +184,12 @@ impl Plugin for StrudelPlugin {
     ) -> bool {
         self.sample_rate = buffer_config.sample_rate;
 
+        // Use the code already in gui_state (default or previously restored state)
+        let default_code = self.gui_state.lock().code.clone();
+
         let eval_thread = EvalThread::spawn(self.event_buffer.clone(), 8);
 
-        if let Err(e) = eval_thread.set_code("s('bd sd hh sd')".to_string()) {
+        if let Err(e) = eval_thread.set_code(default_code) {
             nih_error!("Failed to set default pattern: {}", e);
             return false;
         }
@@ -138,6 +217,37 @@ impl Plugin for StrudelPlugin {
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         let transport = context.transport();
+
+        // ── Update GUI state and consume eval requests (non-blocking) ─────────
+        // Use try_lock() so the audio thread never blocks waiting for the GUI.
+        if let Some(mut gs) = self.gui_state.try_lock() {
+            gs.bpm = transport.tempo.unwrap_or(120.0);
+            gs.is_playing = transport.playing;
+
+            if gs.eval_requested {
+                gs.eval_requested = false;
+                let code = gs.code.clone();
+                // Drop the lock before sending to avoid holding it during channel ops
+                drop(gs);
+                if let Some(ref eval_thread) = self.eval_thread {
+                    let _ = eval_thread.set_code(code);
+                }
+            }
+        }
+
+        // ── Poll for eval results and update error display ─────────────────────
+        if let Some(ref eval_thread) = self.eval_thread {
+            while let Some(result) = eval_thread.try_recv_result() {
+                if let Some(mut gs) = self.gui_state.try_lock() {
+                    if result.success {
+                        gs.last_error.clear();
+                    } else {
+                        gs.last_error =
+                            result.error.unwrap_or_else(|| "Unknown error".to_string());
+                    }
+                }
+            }
+        }
 
         // ── Not playing: let voices decay, do not schedule new events ─────────
         if !transport.playing {
@@ -235,11 +345,6 @@ impl Plugin for StrudelPlugin {
         self.render_voices(buffer);
 
         ProcessStatus::Normal
-    }
-
-    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        // TODO Phase 4: Implement GUI
-        None
     }
 }
 

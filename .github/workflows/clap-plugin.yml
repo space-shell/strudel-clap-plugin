@@ -90,11 +90,28 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ~/.cargo/.rusty_v8/
             packages/clap-plugin/target/
           key: ${{ runner.os }}-cargo-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.platform.target }}-
             ${{ runner.os }}-cargo-
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '9'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install Node dependencies and bundle JS runtime
+        run: |
+          pnpm install --frozen-lockfile
+          ./packages/clap-plugin/scripts/bundle-runtime.sh
 
       - name: Run tests
         if: matrix.platform.target == 'x86_64-unknown-linux-gnu'

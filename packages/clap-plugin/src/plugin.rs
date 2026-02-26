@@ -1,40 +1,55 @@
-// Main plugin implementation
+// Main plugin implementation — Phase 3: MIDI output + built-in synthesizer
+// Copyright (C) 2026 Strudel Contributors
+// Licensed under AGPL-3.0-or-later
 
 use nih_plug::prelude::*;
 use std::sync::Arc;
 
 use crate::event_buffer::DoubleEventBuffer;
 use crate::eval_thread::EvalThread;
+use crate::voice::{VoiceManager, event_params_to_note, midi_to_freq};
 
-/// The main Strudel plugin struct
-pub struct StrudelPlugin {
-    params: Arc<StrudelParams>,
-    /// Event buffer for pre-rendered pattern events
-    event_buffer: Arc<DoubleEventBuffer>,
-    /// Evaluation thread for background pattern processing
-    eval_thread: Option<EvalThread>,
-    /// Sample rate in Hz
-    sample_rate: f32,
+// ─── Active MIDI note (tracks pending NoteOff) ────────────────────────────────
+
+/// Tracks an in-flight MIDI note so we can send the NoteOff at the right time.
+struct ActiveMidiNote {
+    note: u8,
+    channel: u8,
+    /// Absolute sample position (from DAW timeline) at which NoteOff should fire.
+    end_sample: i64,
 }
 
-/// Plugin parameters
+// ─── Plugin struct ─────────────────────────────────────────────────────────────
+
+pub struct StrudelPlugin {
+    params: Arc<StrudelParams>,
+    event_buffer: Arc<DoubleEventBuffer>,
+    eval_thread: Option<EvalThread>,
+    sample_rate: f32,
+    /// Polyphonic sine-wave synthesizer.
+    voice_manager: VoiceManager,
+    /// MIDI notes waiting for their NoteOff event.
+    active_midi_notes: Vec<ActiveMidiNote>,
+}
+
+// ─── Parameters ───────────────────────────────────────────────────────────────
+
 #[derive(Params)]
 struct StrudelParams {
-    /// Master gain parameter (for testing)
     #[id = "gain"]
     pub gain: FloatParam,
 }
 
 impl Default for StrudelPlugin {
     fn default() -> Self {
-        // Create event buffer with 8 cycles of pre-rendering
         let event_buffer = Arc::new(DoubleEventBuffer::new(8));
-
         Self {
             params: Arc::new(StrudelParams::default()),
             event_buffer,
             eval_thread: None,
             sample_rate: 44100.0,
+            voice_manager: VoiceManager::new(),
+            active_midi_notes: Vec::new(),
         }
     }
 }
@@ -59,6 +74,8 @@ impl Default for StrudelParams {
     }
 }
 
+// ─── Plugin trait impl ────────────────────────────────────────────────────────
+
 impl Plugin for StrudelPlugin {
     const NAME: &'static str = "Strudel";
     const VENDOR: &'static str = "Strudel";
@@ -66,7 +83,6 @@ impl Plugin for StrudelPlugin {
     const EMAIL: &'static str = "hello@strudel.cc";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    // Stereo output, no input
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
         main_input_channels: NonZeroU32::new(0),
         main_output_channels: NonZeroU32::new(2),
@@ -75,7 +91,6 @@ impl Plugin for StrudelPlugin {
         names: PortNames::const_default(),
     }];
 
-    // Enable MIDI output
     const MIDI_OUTPUT: MidiConfig = MidiConfig::Basic;
 
     type SysExMessage = ();
@@ -91,32 +106,28 @@ impl Plugin for StrudelPlugin {
         buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        // Store sample rate
         self.sample_rate = buffer_config.sample_rate;
 
-        // Spawn evaluation thread with 8 cycles of pre-rendering
         let eval_thread = EvalThread::spawn(self.event_buffer.clone(), 8);
 
-        // Set default pattern (simple kick drum pattern)
         if let Err(e) = eval_thread.set_code("s('bd sd hh sd')".to_string()) {
             nih_error!("Failed to set default pattern: {}", e);
             return false;
         }
-
-        // Set initial tempo from params (default 120 BPM)
         if let Err(e) = eval_thread.set_tempo(120.0) {
             nih_error!("Failed to set tempo: {}", e);
             return false;
         }
 
         self.eval_thread = Some(eval_thread);
-
         nih_log!("Strudel plugin initialized (sample rate: {} Hz)", self.sample_rate);
         true
     }
 
     fn reset(&mut self) {
-        // Reset plugin state when transport stops or seeks
+        // Called when transport stops or seeks — silence everything immediately.
+        self.voice_manager.reset();
+        self.active_midi_notes.clear();
         nih_log!("Strudel plugin reset");
     }
 
@@ -128,45 +139,124 @@ impl Plugin for StrudelPlugin {
     ) -> ProcessStatus {
         let transport = context.transport();
 
-        // Sync with transport state
+        // ── Not playing: let voices decay, do not schedule new events ─────────
+        if !transport.playing {
+            if let Some(ref eval_thread) = self.eval_thread {
+                let _ = eval_thread.update_transport(false, 0.0);
+            }
+            self.render_voices(buffer);
+            return ProcessStatus::Normal;
+        }
+
+        // ── Timing calculations ───────────────────────────────────────────────
+        let tempo = transport.tempo.unwrap_or(120.0);
+        let samples_per_beat = self.sample_rate as f64 * 60.0 / tempo;
+        let samples_per_cycle = samples_per_beat * 4.0; // 4 beats per cycle
+        let buffer_start_sample = transport.pos_samples().unwrap_or(0);
+        let buffer_size = buffer.samples();
+
+        let current_cycle = buffer_start_sample as f64 / samples_per_cycle;
+        let buffer_cycles = buffer_size as f64 / samples_per_cycle;
+        let end_cycle = current_cycle + buffer_cycles;
+
+        // ── Sync eval thread with DAW transport ───────────────────────────────
         if let Some(ref eval_thread) = self.eval_thread {
-            // Calculate current cycle from sample position and tempo
-            // 1 cycle = 1 bar at current tempo
-            let tempo = transport.tempo.unwrap_or(120.0);
-            let samples_per_beat = self.sample_rate as f64 * 60.0 / tempo;
-            let samples_per_cycle = samples_per_beat * 4.0; // 4 beats per cycle
-            let current_cycle = transport.pos_samples().unwrap_or(0) as f64 / samples_per_cycle;
-
-            // Update transport state in eval thread
-            if let Err(e) = eval_thread.update_transport(transport.playing, current_cycle) {
-                nih_error!("Failed to update transport: {}", e);
-            }
-
-            // Read events from buffer for this audio block
-            let start_time = current_cycle;
-            let end_time = current_cycle + (buffer.samples() as f64 / samples_per_cycle);
-            let _events = self.event_buffer.read_events_in_range(start_time, end_time);
-
-            // TODO Phase 3: Synthesize audio from events
-            // For now, output silence
+            // Tempo from transport overrides our default
+            let _ = eval_thread.set_tempo(tempo);
+            let _ = eval_thread.update_transport(true, current_cycle);
         }
 
-        // Output silence (Phase 3 will generate audio)
-        for channel_samples in buffer.iter_samples() {
-            let gain = self.params.gain.smoothed.next();
-            for sample in channel_samples {
-                *sample = 0.0 * gain;
+        // ── Read events for this buffer window ────────────────────────────────
+        let events = self.event_buffer.read_events_in_range(current_cycle, end_cycle);
+
+        // ── Send MIDI NoteOff for notes that expire within this buffer ────────
+        let buffer_end_sample = buffer_start_sample + buffer_size as i64;
+        self.active_midi_notes.retain(|n| {
+            if n.end_sample > buffer_start_sample && n.end_sample <= buffer_end_sample {
+                let timing = ((n.end_sample - buffer_start_sample - 1).max(0) as u32)
+                    .min(buffer_size as u32 - 1);
+                context.send_event(NoteEvent::NoteOff {
+                    timing,
+                    voice_id: None,
+                    channel: n.channel,
+                    note: n.note,
+                    velocity: 0.0,
+                });
+                false // consumed
+            } else {
+                n.end_sample > buffer_end_sample // keep only future notes
             }
+        });
+
+        // ── Schedule new events ───────────────────────────────────────────────
+        for event in &events {
+            let onset = event.onset.0 as f64 / event.onset.1 as f64;
+            let duration_cycles = event.duration.0 as f64 / event.duration.1 as f64;
+
+            // Sample offset within this buffer (clamped to [0, buffer_size - 1])
+            let offset_f64 = (onset - current_cycle) * samples_per_cycle;
+            let sample_offset = (offset_f64.max(0.0) as u32).min(buffer_size as u32 - 1);
+
+            // Duration in samples (at least 1ms)
+            let duration_samples = ((duration_cycles * samples_per_cycle) as u32)
+                .max((self.sample_rate * 0.001) as u32);
+
+            let (midi_note, freq, gain) = event_params_to_note(&event.params);
+            let velocity = gain.clamp(0.0, 1.0);
+
+            // MIDI NoteOn at the precise sample offset
+            context.send_event(NoteEvent::NoteOn {
+                timing: sample_offset,
+                voice_id: None,
+                channel: 0,
+                note: midi_note,
+                velocity,
+            });
+
+            // Schedule the corresponding NoteOff
+            let end_sample = buffer_start_sample + sample_offset as i64 + duration_samples as i64;
+            self.active_midi_notes.push(ActiveMidiNote {
+                note: midi_note,
+                channel: 0,
+                end_sample,
+            });
+
+            // Trigger built-in synth voice
+            self.voice_manager.note_on(
+                midi_note,
+                freq,
+                gain,
+                duration_samples,
+                self.sample_rate,
+            );
         }
+
+        // ── Generate audio from synth voices ──────────────────────────────────
+        self.render_voices(buffer);
 
         ProcessStatus::Normal
     }
 
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        // TODO: Implement GUI with egui or webview
+        // TODO Phase 4: Implement GUI
         None
     }
 }
+
+impl StrudelPlugin {
+    /// Mix all active synth voices into the output buffer (mono → all channels).
+    fn render_voices(&mut self, buffer: &mut Buffer) {
+        for channel_samples in buffer.iter_samples() {
+            let synth = self.voice_manager.process_sample();
+            let gain = self.params.gain.smoothed.next();
+            for sample in channel_samples {
+                *sample = synth * gain;
+            }
+        }
+    }
+}
+
+// ─── CLAP / VST3 metadata ────────────────────────────────────────────────────
 
 impl ClapPlugin for StrudelPlugin {
     const CLAP_ID: &'static str = "cc.strudel.clap-plugin";

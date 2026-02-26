@@ -45,6 +45,11 @@ pub struct StrudelPlugin {
 struct StrudelParams {
     #[id = "gain"]
     pub gain: FloatParam,
+
+    /// Pattern code persisted in the DAW project.
+    /// Updated on every Evaluate; restored on project load.
+    #[persist = "editor_code"]
+    pub editor_code: parking_lot::Mutex<String>,
 }
 
 impl Default for StrudelPlugin {
@@ -66,6 +71,7 @@ impl Default for StrudelPlugin {
 impl Default for StrudelParams {
     fn default() -> Self {
         Self {
+            editor_code: parking_lot::Mutex::new(String::new()),
             gain: FloatParam::new(
                 "Gain",
                 util::db_to_gain(0.0),
@@ -184,8 +190,14 @@ impl Plugin for StrudelPlugin {
     ) -> bool {
         self.sample_rate = buffer_config.sample_rate;
 
-        // Use the code already in gui_state (default or previously restored state)
-        let default_code = self.gui_state.lock().code.clone();
+        // Prefer persisted code over the gui_state default
+        let persisted = self.params.editor_code.lock().clone();
+        let default_code = if !persisted.is_empty() {
+            self.gui_state.lock().code = persisted.clone();
+            persisted
+        } else {
+            self.gui_state.lock().code.clone()
+        };
 
         let eval_thread = EvalThread::spawn(self.event_buffer.clone(), 8);
 
@@ -227,6 +239,8 @@ impl Plugin for StrudelPlugin {
             if gs.eval_requested {
                 gs.eval_requested = false;
                 let code = gs.code.clone();
+                // Persist the code in params so the DAW project saves it
+                *self.params.editor_code.lock() = code.clone();
                 // Drop the lock before sending to avoid holding it during channel ops
                 drop(gs);
                 if let Some(ref eval_thread) = self.eval_thread {

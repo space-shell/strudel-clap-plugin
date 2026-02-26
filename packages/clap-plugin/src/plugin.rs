@@ -142,22 +142,33 @@ impl Plugin for StrudelPlugin {
                 let gui_state = &state.gui_state;
                 let egui_state = &state.egui_state;
 
-                // ── Keyboard shortcuts (single ctx.input call per frame) ────────
-                let (ctrl_enter, zoom_in, zoom_out, zoom_reset, toggle_mute) = ctx.input(|i| {
-                    let ctrl_enter =
-                        i.key_pressed(egui::Key::Enter) && i.modifiers.command_only();
-                    // Ctrl+= (no shift) or Ctrl+Plus (numpad / shifted = on some layouts)
-                    let zoom_in = (i.key_pressed(egui::Key::Equals)
-                        && i.modifiers.command_only())
-                        || (i.key_pressed(egui::Key::Plus) && i.modifiers.ctrl);
-                    let zoom_out =
-                        i.key_pressed(egui::Key::Minus) && i.modifiers.command_only();
-                    let zoom_reset =
-                        i.key_pressed(egui::Key::Num0) && i.modifiers.command_only();
-                    let toggle_mute =
-                        i.key_pressed(egui::Key::Period) && i.modifiers.command_only();
-                    (ctrl_enter, zoom_in, zoom_out, zoom_reset, toggle_mute)
-                });
+                // ── Keyboard shortcuts ─────────────────────────────────────────
+                // NOTE: egui_baseview only translates K::Character for a-z and
+                // 0-9, so punctuation keys (-, =, .) never become egui Key events.
+                // All shortcuts here use only letters or digits.
+                //
+                // consume_key() both detects and consumes the event so the
+                // TextEdit widget doesn't also act on it (e.g. Ctrl+↑/↓ cursor).
+                //
+                //   Ctrl+Enter  — evaluate
+                //   Ctrl+↑      — font size +1 pt
+                //   Ctrl+↓      — font size -1 pt
+                //   Ctrl+0      — font size reset
+                //   Ctrl+M      — toggle pause / resume (M = Mute)
+                let (ctrl_enter, zoom_in, zoom_out, zoom_reset, toggle_mute) =
+                    ctx.input_mut(|i| {
+                        let ctrl_enter =
+                            i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter);
+                        let zoom_in =
+                            i.consume_key(egui::Modifiers::COMMAND, egui::Key::ArrowUp);
+                        let zoom_out =
+                            i.consume_key(egui::Modifiers::COMMAND, egui::Key::ArrowDown);
+                        let zoom_reset =
+                            i.consume_key(egui::Modifiers::COMMAND, egui::Key::Num0);
+                        let toggle_mute =
+                            i.consume_key(egui::Modifiers::COMMAND, egui::Key::M);
+                        (ctrl_enter, zoom_in, zoom_out, zoom_reset, toggle_mute)
+                    });
 
                 {
                     let mut gs = gui_state.lock();
@@ -178,12 +189,30 @@ impl Plugin for StrudelPlugin {
                     }
                 }
 
-                // ── Apply editor font size ──────────────────────────────────────
+                // ── Apply font sizes (editor + global UI) ──────────────────────
                 let font_size = gui_state.lock().font_size;
                 ctx.style_mut(|style| {
+                    // Editor text
                     style.text_styles.insert(
                         egui::TextStyle::Monospace,
                         egui::FontId::monospace(font_size),
+                    );
+                    // UI chrome — slightly larger than egui defaults
+                    style.text_styles.insert(
+                        egui::TextStyle::Body,
+                        egui::FontId::proportional(14.0),
+                    );
+                    style.text_styles.insert(
+                        egui::TextStyle::Button,
+                        egui::FontId::proportional(14.0),
+                    );
+                    style.text_styles.insert(
+                        egui::TextStyle::Heading,
+                        egui::FontId::proportional(20.0),
+                    );
+                    style.text_styles.insert(
+                        egui::TextStyle::Small,
+                        egui::FontId::proportional(11.0),
                     );
                 });
 
@@ -215,9 +244,9 @@ impl Plugin for StrudelPlugin {
                         }
 
                         let pause_label = if muted {
-                            "Resume  (restart pattern)"
+                            "Resume  Ctrl+M"
                         } else {
-                            "Pause  (silence output)"
+                            "Pause  Ctrl+M"
                         };
                         if ui.button(pause_label).clicked() {
                             gui_state.lock().muted = !muted;

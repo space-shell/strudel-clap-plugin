@@ -34,7 +34,7 @@ impl Default for GuiState {
             last_error: String::new(),
             eval_requested: false,
             muted: false,
-            font_size: 16.0,
+            font_size: 18.0,
             bpm: 120.0,
             is_playing: false,
         }

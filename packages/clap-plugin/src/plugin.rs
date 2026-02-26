@@ -3,7 +3,7 @@
 // Licensed under AGPL-3.0-or-later
 
 use nih_plug::prelude::*;
-use nih_plug_egui::{create_egui_editor, egui, EguiState};
+use nih_plug_egui::{create_egui_editor, egui, resizable_window::ResizableWindow, EguiState};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -22,6 +22,15 @@ struct ActiveMidiNote {
     end_sample: i64,
 }
 
+// ─── Combined editor user-state (passed into create_egui_editor) ──────────────
+
+/// Bundles the two Arcs the editor closure needs: the live GUI state and the
+/// egui window state (required by `ResizableWindow`).
+struct GuiEditorState {
+    gui_state: Arc<Mutex<GuiState>>,
+    egui_state: Arc<EguiState>,
+}
+
 // ─── Plugin struct ─────────────────────────────────────────────────────────────
 
 pub struct StrudelPlugin {
@@ -37,6 +46,9 @@ pub struct StrudelPlugin {
     gui_state: Arc<Mutex<GuiState>>,
     /// egui window size and open/closed state — required by nih_plug_egui.
     egui_state: Arc<EguiState>,
+    /// Previous muted state — used to detect the unmuted→muted transition so
+    /// voices can be silenced immediately when the user hits Pause.
+    was_muted: bool,
 }
 
 // ─── Parameters ───────────────────────────────────────────────────────────────
@@ -64,6 +76,7 @@ impl Default for StrudelPlugin {
             active_midi_notes: Vec::new(),
             gui_state: Arc::new(Mutex::new(GuiState::default())),
             egui_state: EguiState::from_size(640, 440),
+            was_muted: false,
         }
     }
 }
@@ -116,14 +129,19 @@ impl Plugin for StrudelPlugin {
     }
 
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        let editor_state = GuiEditorState {
+            gui_state: self.gui_state.clone(),
+            egui_state: self.egui_state.clone(),
+        };
+
         create_egui_editor(
             self.egui_state.clone(),
-            // user_state: cloned Arc so the editor holds a reference to the shared state
-            self.gui_state.clone(),
-            // init: nothing to set up per-window
-            |_ctx, _gui_state| {},
-            // update: called every frame; gui_state is &mut Arc<Mutex<GuiState>>
-            |ctx, _setter, gui_state| {
+            editor_state,
+            |_ctx, _state| {},
+            |ctx, _setter, state| {
+                let gui_state = &state.gui_state;
+                let egui_state = &state.egui_state;
+
                 // ── Header: title + transport info ─────────────────────────────
                 egui::TopBottomPanel::top("strudel_header").show(ctx, |ui| {
                     ui.horizontal(|ui| {
@@ -139,25 +157,36 @@ impl Plugin for StrudelPlugin {
                     });
                 });
 
-                // ── Footer: Evaluate button + status / error ────────────────────
+                // ── Footer: Evaluate + Pause/Resume buttons + status / error ───
                 egui::TopBottomPanel::bottom("strudel_footer").show(ctx, |ui| {
-                    // Read last_error once to avoid multiple lock acquisitions
-                    let last_error = gui_state.lock().last_error.clone();
+                    let (last_error, muted) = {
+                        let gs = gui_state.lock();
+                        (gs.last_error.clone(), gs.muted)
+                    };
 
-                    // Check keyboard shortcut before the button so both can set
-                    // eval_requested in one place.
                     let ctrl_enter = ctx.input(|i| {
                         i.key_pressed(egui::Key::Enter) && i.modifiers.command_only()
                     });
 
                     ui.horizontal(|ui| {
-                        let btn_clicked = ui.button("Evaluate  Ctrl+Enter").clicked();
-                        if btn_clicked || ctrl_enter {
+                        let eval_clicked = ui.button("Evaluate  Ctrl+Enter").clicked();
+                        if eval_clicked || ctrl_enter {
                             gui_state.lock().eval_requested = true;
                         }
 
-                        if last_error.is_empty() {
+                        let pause_label = if muted {
+                            "Resume  (restart pattern)"
+                        } else {
+                            "Pause  (silence output)"
+                        };
+                        if ui.button(pause_label).clicked() {
+                            gui_state.lock().muted = !muted;
+                        }
+
+                        if last_error.is_empty() && !muted {
                             ui.colored_label(egui::Color32::GREEN, "● Ready");
+                        } else if muted {
+                            ui.colored_label(egui::Color32::YELLOW, "⏸ Paused");
                         }
                     });
 
@@ -166,18 +195,20 @@ impl Plugin for StrudelPlugin {
                     }
                 });
 
-                // ── Central panel: monospace code editor ────────────────────────
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        let mut gs = gui_state.lock();
-                        ui.add(
-                            egui::TextEdit::multiline(&mut gs.code)
-                                .font(egui::TextStyle::Monospace)
-                                .desired_rows(15)
-                                .desired_width(f32::INFINITY),
-                        );
+                // ── Central panel: resizable code editor ────────────────────────
+                ResizableWindow::new("strudel_resize")
+                    .min_size([300.0, 150.0])
+                    .show(ctx, egui_state, |ui| {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            let mut gs = gui_state.lock();
+                            ui.add(
+                                egui::TextEdit::multiline(&mut gs.code)
+                                    .font(egui::TextStyle::Monospace)
+                                    .desired_rows(15)
+                                    .desired_width(f32::INFINITY),
+                            );
+                        });
                     });
-                });
             },
         )
     }
@@ -232,9 +263,11 @@ impl Plugin for StrudelPlugin {
 
         // ── Update GUI state and consume eval requests (non-blocking) ─────────
         // Use try_lock() so the audio thread never blocks waiting for the GUI.
+        let mut currently_muted = self.was_muted;
         if let Some(mut gs) = self.gui_state.try_lock() {
             gs.bpm = transport.tempo.unwrap_or(120.0);
             gs.is_playing = transport.playing;
+            currently_muted = gs.muted;
 
             if gs.eval_requested {
                 gs.eval_requested = false;
@@ -248,6 +281,13 @@ impl Plugin for StrudelPlugin {
                 }
             }
         }
+
+        // ── Silence immediately on unmuted→muted transition ───────────────────
+        if currently_muted && !self.was_muted {
+            self.voice_manager.reset();
+            self.active_midi_notes.clear();
+        }
+        self.was_muted = currently_muted;
 
         // ── Poll for eval results and update error display ─────────────────────
         if let Some(ref eval_thread) = self.eval_thread {
@@ -268,6 +308,12 @@ impl Plugin for StrudelPlugin {
             if let Some(ref eval_thread) = self.eval_thread {
                 let _ = eval_thread.update_transport(false, 0.0);
             }
+            self.render_voices(buffer);
+            return ProcessStatus::Normal;
+        }
+
+        // ── Muted: voices already silenced on transition; skip scheduling ─────
+        if currently_muted {
             self.render_voices(buffer);
             return ProcessStatus::Normal;
         }

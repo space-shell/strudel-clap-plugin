@@ -16,6 +16,9 @@ pub struct GuiState {
     /// Ctrl+Enter). `process()` consumes it (clears to `false`) and forwards the
     /// code to the eval thread.
     pub eval_requested: bool,
+    /// When `true` the audio thread skips event scheduling and silences all voices.
+    /// The GUI toggles this directly via the Pause/Resume button.
+    pub muted: bool,
     /// Current BPM — written by `process()` every buffer so the GUI can display it.
     pub bpm: f64,
     /// Whether the DAW is currently playing — written by `process()` every buffer.
@@ -28,6 +31,7 @@ impl Default for GuiState {
             code: "s('bd sd hh sd')".to_string(),
             last_error: String::new(),
             eval_requested: false,
+            muted: false,
             bpm: 120.0,
             is_playing: false,
         }

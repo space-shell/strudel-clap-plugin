@@ -5,6 +5,9 @@
 use nih_plug::prelude::*;
 
 mod plugin;
+mod js_runtime;
+mod event_buffer;
+mod eval_thread;
 
 pub use plugin::StrudelPlugin;
 

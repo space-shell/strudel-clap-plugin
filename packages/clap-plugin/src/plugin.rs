@@ -142,6 +142,46 @@ impl Plugin for StrudelPlugin {
                 let gui_state = &state.gui_state;
                 let egui_state = &state.egui_state;
 
+                // ── Keyboard shortcuts (single ctx.input call per frame) ────────
+                let (ctrl_enter, zoom_in, zoom_out, toggle_mute) = ctx.input(|i| {
+                    let ctrl_enter =
+                        i.key_pressed(egui::Key::Enter) && i.modifiers.command_only();
+                    // Ctrl+= (no shift) or Ctrl+Plus (numpad / shifted = on some layouts)
+                    let zoom_in = (i.key_pressed(egui::Key::Equals)
+                        && i.modifiers.command_only())
+                        || (i.key_pressed(egui::Key::Plus) && i.modifiers.ctrl);
+                    let zoom_out =
+                        i.key_pressed(egui::Key::Minus) && i.modifiers.command_only();
+                    let toggle_mute =
+                        i.key_pressed(egui::Key::Period) && i.modifiers.command_only();
+                    (ctrl_enter, zoom_in, zoom_out, toggle_mute)
+                });
+
+                {
+                    let mut gs = gui_state.lock();
+                    if ctrl_enter {
+                        gs.eval_requested = true;
+                    }
+                    if toggle_mute {
+                        gs.muted = !gs.muted;
+                    }
+                    if zoom_in {
+                        gs.font_size = (gs.font_size + 1.0).min(36.0);
+                    }
+                    if zoom_out {
+                        gs.font_size = (gs.font_size - 1.0).max(8.0);
+                    }
+                }
+
+                // ── Apply editor font size ──────────────────────────────────────
+                let font_size = gui_state.lock().font_size;
+                ctx.style_mut(|style| {
+                    style.text_styles.insert(
+                        egui::TextStyle::Monospace,
+                        egui::FontId::monospace(font_size),
+                    );
+                });
+
                 // ── Header: title + transport info ─────────────────────────────
                 egui::TopBottomPanel::top("strudel_header").show(ctx, |ui| {
                     ui.horizontal(|ui| {
@@ -164,13 +204,8 @@ impl Plugin for StrudelPlugin {
                         (gs.last_error.clone(), gs.muted)
                     };
 
-                    let ctrl_enter = ctx.input(|i| {
-                        i.key_pressed(egui::Key::Enter) && i.modifiers.command_only()
-                    });
-
                     ui.horizontal(|ui| {
-                        let eval_clicked = ui.button("Evaluate  Ctrl+Enter").clicked();
-                        if eval_clicked || ctrl_enter {
+                        if ui.button("Evaluate  Ctrl+Enter").clicked() {
                             gui_state.lock().eval_requested = true;
                         }
 

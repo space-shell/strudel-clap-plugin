@@ -239,13 +239,16 @@ impl Plugin for StrudelPlugin {
                 ResizableWindow::new("strudel_resize")
                     .min_size([300.0, 150.0])
                     .show(ctx, egui_state, |ui| {
+                        // Capture available size before the ScrollArea expands it to
+                        // infinity, so the TextEdit fills the full panel height.
+                        let available = ui.available_size();
                         egui::ScrollArea::vertical().show(ui, |ui| {
                             let mut gs = gui_state.lock();
                             ui.add(
                                 egui::TextEdit::multiline(&mut gs.code)
                                     .font(egui::TextStyle::Monospace)
-                                    .desired_rows(15)
-                                    .desired_width(f32::INFINITY),
+                                    .desired_width(f32::INFINITY)
+                                    .min_size(available),
                             );
                         });
                     });
